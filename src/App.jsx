@@ -150,21 +150,24 @@ export default function App() {
         }}
       >
         {/* Left: branding */}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
-          <span
-            style={{
-              fontFamily: "'Inter', sans-serif",
-              fontWeight: 700,
-              fontSize: '1rem',
-              letterSpacing: '-0.01em',
-            }}
-            className="gradient-text"
-          >
-            MemOS
-          </span>
-          <span style={{ color: 'var(--os-dim)', fontSize: '0.7rem' }}>
-            Virtual Memory &amp; Page Replacement Simulator
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <img src="/logo.png" alt="MemOS Logo" style={{ width: '24px', height: '24px', borderRadius: '4px', objectFit: 'contain' }} />
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px' }}>
+            <span
+              style={{
+                fontFamily: "'Inter', sans-serif",
+                fontWeight: 700,
+                fontSize: '1rem',
+                letterSpacing: '-0.01em',
+              }}
+              className="gradient-text"
+            >
+              MemOS
+            </span>
+            <span style={{ color: 'var(--os-dim)', fontSize: '0.7rem' }}>
+              Virtual Memory &amp; Page Replacement Simulator
+            </span>
+          </div>
         </div>
 
         {/* Right: color legend */}
