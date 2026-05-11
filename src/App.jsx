@@ -16,6 +16,7 @@ import { parseReferenceString } from './utils/parseReference.js'
 import { StepNarration } from './components/StepNarration.jsx'
 import { RaceMode } from './components/RaceMode.jsx'
 import { AIAdvisor } from './components/AIAdvisor.jsx'
+import { LandingPage } from './components/LandingPage.jsx'
 
 const PLAY_MS = 520
 
@@ -53,6 +54,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('simulator')
+  const [showSimulation, setShowSimulation] = useState(false)
 
   const refsParsed = useMemo(() => parseReferenceString(referenceString), [referenceString])
   const uniquePages = useMemo(() => [...new Set(refsParsed)], [refsParsed])
@@ -138,8 +140,19 @@ export default function App() {
         background: 'var(--os-bg)',
       }}
     >
-      {/* ── Navbar ── */}
-      <header
+      <AnimatePresence mode="wait">
+        {!showSimulation ? (
+          <LandingPage key="landing" onStart={() => setShowSimulation(true)} />
+        ) : (
+          <motion.div
+            key="simulation-core"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            style={{ display: 'flex', flexDirection: 'column', height: '100%', flex: 1, overflow: 'hidden' }}
+          >
+            {/* ── Navbar ── */}
+            <header
         style={{
           height: 'var(--nav-h)',
           flexShrink: 0,
@@ -505,6 +518,9 @@ export default function App() {
           )}
         </AnimatePresence>
       </main>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

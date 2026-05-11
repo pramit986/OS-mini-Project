@@ -13,7 +13,7 @@ export function FrameDisplay({
   return (
     <section className="glass-card-solid p-3 flex flex-col gap-2 h-full">
       <p className="os-section-title">physical.frames</p>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2">
         <AnimatePresence mode="popLayout">
           {frames.map((page, idx) => {
             const holdsRef = page === referencePage && page !== null
