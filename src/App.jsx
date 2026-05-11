@@ -13,6 +13,9 @@ import { MultiLevelPaging } from './components/MultiLevelPaging.jsx'
 import { LogicalPagesStrip } from './components/LogicalPagesStrip.jsx'
 import { runSimulation, compareAlgorithmsFaults } from './algorithms/index.js'
 import { parseReferenceString } from './utils/parseReference.js'
+import { StepNarration } from './components/StepNarration.jsx'
+import { RaceMode } from './components/RaceMode.jsx'
+import { AIAdvisor } from './components/AIAdvisor.jsx'
 
 const PLAY_MS = 520
 
@@ -36,6 +39,7 @@ const TABS = [
   { id: 'simulator', label: ' Simulator' },
   { id: 'trace', label: ' Execution Trace' },
   { id: 'memory', label: ' Memory' },
+  { id: 'race', label: '🏁 Race Mode' },
 ]
 
 export default function App() {
@@ -284,7 +288,7 @@ export default function App() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: 'hidden',
+          overflow: 'auto',
           padding: '10px 14px',
         }}
       >
@@ -298,10 +302,10 @@ export default function App() {
               exit={{ opacity: 0, x: 10 }}
               transition={{ duration: 0.18 }}
               style={{
-                height: '100%',
-                display: 'grid',
-                gridTemplateRows: 'auto auto 1fr auto',
+                display: 'flex',
+                flexDirection: 'column',
                 gap: '8px',
+                paddingBottom: '12px',
               }}
             >
               {/* Row 1: Input + Controls */}
@@ -336,17 +340,14 @@ export default function App() {
 
               {/* Row 2: Middle panels */}
               {hasSimulation && currentStep ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', minHeight: 0 }}>
-                  {/* Frames */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', minHeight: 260 }}>
                   <FrameDisplay
                     frames={currentStep.frames}
                     referencePage={currentStep.reference}
                     hit={currentStep.hit}
                     victimFrameIndex={currentStep.victimFrameIndex}
                   />
-                  {/* Page table */}
                   <PageTable frames={currentStep.frames} />
-                  {/* Chart */}
                   <ChartView
                     fifoFaults={chartFaults.fifo}
                     lruFaults={chartFaults.lru}
@@ -364,6 +365,7 @@ export default function App() {
                     color: 'var(--os-text-dim)',
                     fontSize: '0.8rem',
                     background: 'rgba(17,24,39,0.4)',
+                    minHeight: 200,
                   }}
                 >
                   Configure inputs above, then press{' '}
@@ -372,57 +374,73 @@ export default function App() {
                 </div>
               )}
 
-              {/* Row 3: Stats + reference string */}
+              {/* Row 3: Narration + Stats + reference string */}
               {hasSimulation && currentStep && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', alignItems: 'start' }}>
-                  <StatsPanel
-                    hits={cumulative.hits}
-                    faults={cumulative.faults}
-                    stepsTotal={currentStepIndex + 1}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <StepNarration
+                    step={currentStep}
+                    algorithm={algorithm}
+                    stepIndex={currentStepIndex}
                   />
-                  {/* Reference string progress */}
-                  <section
-                    className="glass-card-solid"
-                    style={{ padding: '10px 12px', maxWidth: 420, minWidth: 280 }}
-                  >
-                    <p className="os-section-title" style={{ marginBottom: 6 }}>reference.string</p>
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: 4,
-                        maxHeight: 60,
-                        overflowY: 'auto',
-                      }}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', alignItems: 'start' }}>
+                    <StatsPanel
+                      hits={cumulative.hits}
+                      faults={cumulative.faults}
+                      stepsTotal={currentStepIndex + 1}
+                    />
+                    {/* Reference string progress */}
+                    <section
+                      className="glass-card-solid"
+                      style={{ padding: '10px 12px', maxWidth: 420, minWidth: 280 }}
                     >
-                      {refsParsed.map((p, i) => (
-                        <span
-                          key={`${i}-${p}`}
-                          style={{
-                            fontFamily: 'inherit',
-                            fontSize: '0.7rem',
-                            padding: '1px 6px',
-                            borderRadius: 4,
-                            border: '1px solid',
-                            transition: 'all 0.12s',
-                            ...(i === currentStepIndex
-                              ? {
-                                background: 'rgba(88,166,255,0.18)',
-                                borderColor: 'var(--os-accent)',
-                                color: 'var(--os-accent)',
-                              }
-                              : i < currentStepIndex
-                                ? { background: 'transparent', borderColor: 'var(--os-dim)', color: 'var(--os-dim)' }
-                                : { background: 'transparent', borderColor: 'var(--os-border2)', color: 'var(--os-text-dim)' }),
-                          }}
-                        >
-                          {p}
-                        </span>
-                      ))}
-                    </div>
-                  </section>
+                      <p className="os-section-title" style={{ marginBottom: 6 }}>reference.string</p>
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 4,
+                          maxHeight: 60,
+                          overflowY: 'auto',
+                        }}
+                      >
+                        {refsParsed.map((p, i) => (
+                          <span
+                            key={`${i}-${p}`}
+                            style={{
+                              fontFamily: 'inherit',
+                              fontSize: '0.7rem',
+                              padding: '1px 6px',
+                              borderRadius: 4,
+                              border: '1px solid',
+                              transition: 'all 0.12s',
+                              ...(i === currentStepIndex
+                                ? {
+                                  background: 'rgba(88,166,255,0.18)',
+                                  borderColor: 'var(--os-accent)',
+                                  color: 'var(--os-accent)',
+                                }
+                                : i < currentStepIndex
+                                  ? { background: 'transparent', borderColor: 'var(--os-dim)', color: 'var(--os-dim)' }
+                                  : { background: 'transparent', borderColor: 'var(--os-border2)', color: 'var(--os-text-dim)' }),
+                            }}
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
                 </div>
               )}
+
+              {/* Row 4: AI Advisor */}
+              {hasSimulation && currentStep && (
+                <AIAdvisor
+                  referenceString={refsParsed}
+                  frameCount={frameCount}
+                />
+              )}
+
             </motion.div>
           )}
 
@@ -469,6 +487,20 @@ export default function App() {
             >
               <MemoryAllocation />
               <MultiLevelPaging />
+            </motion.div>
+          )}
+
+          {/* ═══ TAB: Race Mode ═══ */}
+          {activeTab === 'race' && (
+            <motion.div
+              key="race"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ duration: 0.18 }}
+              style={{ height: '100%' }}
+            >
+              <RaceMode />
             </motion.div>
           )}
         </AnimatePresence>
