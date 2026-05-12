@@ -22,18 +22,40 @@ function analyzeReferenceString(refs, currentFrameCount) {
   }
 
   // Find where LRU faults drop and diminishing returns kick in
+  // Find optimal frame count using elbow/slope detection
+  // Strategy: find where adding one more frame saves less than 1 fault
+  // AND the absolute fault rate is acceptable (< 50%)
   let recommendedFrames = 1
+
+  // First find the maximum improvement per step
+  const improvements = []
   for (let i = 1; i < table.length; i++) {
-    const prev = table[i - 1]
-    const curr = table[i]
-    const improvement = prev.lru - curr.lru
-    // Stop when improvement is less than 10% of total refs
-    if (improvement < Math.ceil(total * 0.10)) {
-      recommendedFrames = curr.frames
+    improvements.push({
+      frames: table[i].frames,
+      gain: table[i - 1].lru - table[i].lru
+    })
+  }
+
+  // Find the elbow — where gain drops to 0 or 1 consistently
+  let elbowFound = false
+  for (let i = 0; i < improvements.length; i++) {
+    const curr = improvements[i]
+    const next = improvements[i + 1]
+    recommendedFrames = curr.frames
+
+    // Stop if this step gave 0 gain AND next step also gives 0-1 gain
+    if (curr.gain <= 1 && (!next || next.gain <= 1)) {
+      elbowFound = true
       break
     }
-    recommendedFrames = curr.frames
   }
+
+  // If no elbow found, recommend the last frame size computed
+  if (!elbowFound) {
+    recommendedFrames = table[table.length - 1].frames
+  }
+
+  // Never recommend less than 2
   recommendedFrames = Math.max(2, recommendedFrames)
 
   // Working set: rough estimate — pages in a sliding window of size total/4
