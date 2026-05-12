@@ -6,7 +6,7 @@ function getFaults(steps) {
   return steps.filter(s => s.fault).length
 }
 
-function analyzeReferenceString(refs, currentFrameCount) {
+async function analyzeReferenceString(refs, currentFrameCount) {
   const uniquePages = [...new Set(refs)].length
   const total = refs.length
 
@@ -21,43 +21,6 @@ function analyzeReferenceString(refs, currentFrameCount) {
     })
   }
 
-  // Find where LRU faults drop and diminishing returns kick in
-  // Find optimal frame count using elbow/slope detection
-  // Strategy: find where adding one more frame saves less than 1 fault
-  // AND the absolute fault rate is acceptable (< 50%)
-  let recommendedFrames = 1
-
-  // First find the maximum improvement per step
-  const improvements = []
-  for (let i = 1; i < table.length; i++) {
-    improvements.push({
-      frames: table[i].frames,
-      gain: table[i - 1].lru - table[i].lru
-    })
-  }
-
-  // Find the elbow — where gain drops to 0 or 1 consistently
-  let elbowFound = false
-  for (let i = 0; i < improvements.length; i++) {
-    const curr = improvements[i]
-    const next = improvements[i + 1]
-    recommendedFrames = curr.frames
-
-    // Stop if this step gave 0 gain AND next step also gives 0-1 gain
-    if (curr.gain <= 1 && (!next || next.gain <= 1)) {
-      elbowFound = true
-      break
-    }
-  }
-
-  // If no elbow found, recommend the last frame size computed
-  if (!elbowFound) {
-    recommendedFrames = table[table.length - 1].frames
-  }
-
-  // Never recommend less than 2
-  recommendedFrames = Math.max(2, recommendedFrames)
-
   // Working set: rough estimate — pages in a sliding window of size total/4
   const windowSize = Math.max(4, Math.floor(total / 4))
   let maxWindow = 0
@@ -67,56 +30,144 @@ function analyzeReferenceString(refs, currentFrameCount) {
   }
   const workingSetSize = maxWindow
 
-  // Belady's anomaly check — does FIFO get worse with more frames?
+  // Find optimal frame count using elbow/slope detection (Heuristic Baseline)
+  let recommendedFrames = 1
+  const improvements = []
+  for (let i = 1; i < table.length; i++) {
+    improvements.push({
+      frames: table[i].frames,
+      gain: table[i - 1].lru - table[i].lru
+    })
+  }
+
+  let elbowFound = false
+  for (let i = 0; i < improvements.length; i++) {
+    const curr = improvements[i]
+    const next = improvements[i + 1]
+    recommendedFrames = curr.frames
+    if (curr.gain <= 1 && (!next || next.gain <= 1)) {
+      elbowFound = true
+      break
+    }
+  }
+
+  if (!elbowFound) recommendedFrames = table[table.length - 1].frames
+  recommendedFrames = Math.max(2, recommendedFrames)
+
   let beladysRisk = false
   for (let i = 1; i < table.length; i++) {
     if (table[i].fifo > table[i - 1].fifo) { beladysRisk = true; break }
   }
 
-  // Confidence
   const recRow = table.find(r => r.frames === recommendedFrames)
   const lruFaultRate = recRow ? recRow.lru / total : 1
   const confidence = lruFaultRate < 0.3 ? 'High' : lruFaultRate < 0.55 ? 'Medium' : 'Low'
 
-  // Reasoning
-  const recFifo = recRow?.fifo ?? '-'
-  const recLru  = recRow?.lru  ?? '-'
-  const recOpt  = recRow?.optimal ?? '-'
-
+  const recLru = recRow?.lru ?? '-'
   let reasoning = `With ${recommendedFrames} frames, LRU produces ${recLru} faults out of ${total} references — `
-  if (lruFaultRate < 0.35) {
-    reasoning += `a strong hit ratio indicating good locality in this reference string. `
-  } else {
-    reasoning += `a reasonable balance between memory usage and performance. `
-  }
+  if (lruFaultRate < 0.35) reasoning += `a strong hit ratio indicating good locality in this reference string. `
+  else reasoning += `a reasonable balance between memory usage and performance. `
   reasoning += `The working set of this string is approximately ${workingSetSize} unique pages per window. `
   reasoning += recommendedFrames < workingSetSize
     ? `Adding more frames beyond ${recommendedFrames} gives diminishing returns since most locality is already captured.`
     : `This covers the full working set, so additional frames would show minimal improvement.`
 
-  // Tradeoffs
   const tradeoffs = [-1, 0, 1].map(delta => {
     const f = recommendedFrames + delta
     const row = table.find(r => r.frames === f)
     if (!row) return null
     let verdict = ''
     if (delta === -1) verdict = `${row.lru} LRU faults — too many misses, working set not fully covered.`
-    if (delta === 0)  verdict = `${row.lru} LRU faults — optimal balance of memory use and hit rate.`
-    if (delta === 1)  verdict = `${row.lru} LRU faults — marginal gain of ${recLru - row.lru} fewer faults, extra frame may not be worth it.`
+    if (delta === 0) verdict = `${row.lru} LRU faults — optimal balance of memory use and hit rate.`
+    if (delta === 1) verdict = `${row.lru} LRU faults — marginal gain of ${recLru - row.lru} fewer faults, extra frame may not be worth it.`
     return { frames: f, verdict }
   }).filter(Boolean)
 
-  return {
+  const fallbackResult = {
     recommendedFrames,
     confidence,
     reasoning,
     workingSetSize,
     beladysRisk,
-    beladysExplanation: beladysRisk
-      ? 'FIFO showed more faults with more frames at some point — avoid FIFO on this string if minimizing faults is critical.'
-      : '',
+    beladysExplanation: beladysRisk ? 'FIFO showed more faults with more frames at some point — avoid FIFO on this string if minimizing faults is critical.' : '',
     tradeoffs,
     table,
+  }
+
+  // Optimize with LLM API Call
+  try {
+    const API_KEY = "sk_en23s40r_XsfTt5S6YH1PrOn37G2TNvxf"
+    const response = await fetch("https://api.sarvam.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "sarvam-30b",
+        messages: [
+          {
+            role: "system",
+            content: `You are an AI OS Memory Management Advisor. Analyze the page fault table for a reference string.
+Return a valid JSON object ONLY, with NO markdown formatting or backticks. Format:
+{
+  "recommendedFrames": number (optimal frames using elbow/diminishing returns, max 8),
+  "confidence": "High", "Medium", or "Low",
+  "reasoning": "A concise, expert 2-sentence analysis of the string's locality and why this frame count is best.",
+  "beladysRisk": boolean (true if FIFO shows Belady's anomaly in the table, false otherwise),
+  "beladysExplanation": "Brief explanation if beladysRisk is true, else empty string",
+  "tradeoffs": [
+    { "frames": recommendedFrames - 1, "verdict": "short impact" },
+    { "frames": recommendedFrames, "verdict": "short impact" },
+    { "frames": recommendedFrames + 1, "verdict": "short impact" }
+  ]
+}`
+          },
+          {
+            role: "user",
+            content: `Total references: ${total}
+Unique pages: ${uniquePages}
+Working set size estimate: ${workingSetSize}
+
+Fault Table (frames, fifo faults, lru faults, optimal faults):
+${JSON.stringify(table, null, 2)}`
+          }
+        ],
+        temperature: 0.3
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      let content = data.choices[0].message.content.trim();
+      if (content.startsWith("```json")) {
+        content = content.replace(/```json/g, "").replace(/```/g, "").trim();
+      } else if (content.startsWith("```")) {
+        content = content.replace(/```/g, "").trim();
+      }
+      
+      const llmResult = JSON.parse(content);
+      const validTradeoffs = (llmResult.tradeoffs || []).filter(t => t && t.frames >= 1 && t.frames <= 8);
+
+      return {
+        recommendedFrames: llmResult.recommendedFrames || fallbackResult.recommendedFrames,
+        confidence: llmResult.confidence || fallbackResult.confidence,
+        reasoning: llmResult.reasoning || fallbackResult.reasoning,
+        workingSetSize,
+        beladysRisk: llmResult.beladysRisk !== undefined ? llmResult.beladysRisk : fallbackResult.beladysRisk,
+        beladysExplanation: llmResult.beladysExplanation || fallbackResult.beladysExplanation,
+        tradeoffs: validTradeoffs.length > 0 ? validTradeoffs : fallbackResult.tradeoffs,
+        table,
+        isLLM: true
+      };
+    } else {
+      const errText = await response.text();
+      console.warn("LLM API failed:", response.status, errText);
+      return { ...fallbackResult, errorMsg: `API Failed (${response.status}): ${errText.substring(0, 80)}` };
+    }
+  } catch (err) {
+    console.error("LLM API Error:", err);
+    return { ...fallbackResult, errorMsg: `API Request Error: ${err.message}` };
   }
 }
 
@@ -125,17 +176,16 @@ export function AIAdvisor({ referenceString, frameCount }) {
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
 
-  const analyze = () => {
+  const analyze = async () => {
     if (!referenceString?.length) return
     setLoading(true)
     setOpen(true)
     setResult(null)
-    // Small timeout so the loading state is visible
-    setTimeout(() => {
-      const r = analyzeReferenceString(referenceString, frameCount)
-      setResult(r)
-      setLoading(false)
-    }, 600)
+    
+    // Fetch insights using LLM
+    const r = await analyzeReferenceString(referenceString, frameCount)
+    setResult(r)
+    setLoading(false)
   }
 
   const confidenceColor = {
@@ -228,9 +278,9 @@ export function AIAdvisor({ referenceString, frameCount }) {
                   <span style={{ fontSize: '0.6rem', color: 'var(--os-text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Confidence</span>
                   <span style={{
                     fontSize: '0.62rem', fontWeight: 700,
-                    color: confidenceColor[result.confidence],
-                    background: confidenceColor[result.confidence] + '22',
-                    border: `1px solid ${confidenceColor[result.confidence]}55`,
+                    color: confidenceColor[result.confidence] || 'var(--os-text)',
+                    background: (confidenceColor[result.confidence] || 'var(--os-text)') + '22',
+                    border: `1px solid ${(confidenceColor[result.confidence] || 'var(--os-text)')}55`,
                     borderRadius: 4, padding: '1px 7px',
                   }}>
                     {result.confidence}
@@ -239,7 +289,20 @@ export function AIAdvisor({ referenceString, frameCount }) {
                   <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--os-accent)' }}>
                     ~{result.workingSetSize} pages
                   </span>
+                  {result.isLLM && (
+                    <span style={{ fontSize: '0.5rem', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: 4, padding: '1px 4px', marginLeft: 'auto' }}>
+                      ✨ AI Powered
+                    </span>
+                  )}
                 </div>
+                {result.errorMsg && (
+                  <div style={{
+                    fontSize: '0.55rem', color: 'var(--os-fault)', background: 'rgba(248,81,73,0.1)',
+                    border: '1px solid rgba(248,81,73,0.3)', borderRadius: 4, padding: '4px 8px', marginTop: 4, marginBottom: 2
+                  }}>
+                    <strong>Fallback Active:</strong> {result.errorMsg}
+                  </div>
+                )}
                 <p style={{ fontSize: '0.68rem', color: 'var(--os-text)', margin: 0, lineHeight: 1.6 }}>
                   {result.reasoning}
                 </p>
@@ -247,7 +310,7 @@ export function AIAdvisor({ referenceString, frameCount }) {
             </div>
 
             {/* Belady's warning */}
-            {result.beladysRisk && (
+            {result.beladysRisk && result.beladysExplanation && (
               <div style={{
                 background: 'rgba(248,81,73,0.08)',
                 border: '1px solid rgba(248,81,73,0.3)',

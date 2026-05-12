@@ -81,23 +81,37 @@ export function MemoryAllocation() {
         {/* Memory bar */}
         <div>
           <p className="text-[10px] text-[var(--os-text-dim)] mb-1">
-            Orange = used · dark = internal fragmentation
+            Orange = used · dark = internal fragmentation · hatched = free
           </p>
-          <div className="flex h-8 w-full overflow-hidden rounded-md border border-[var(--os-border2)]">
+          <div className="flex h-8 w-full overflow-hidden rounded-md border border-[var(--os-border2)] bg-[var(--os-bg-card)]">
             {fixed.partitions.map((p, i) => {
-              const usedFrac = p.processId ? Math.min(p.processSize / partSize, 1) : 0
+              const isFree = !p.processId
+              const usedFrac = isFree ? 0 : Math.min(p.processSize / partSize, 1)
               return (
                 <div
                   key={i}
-                  title={`partition ${i}${p.processId ? `: ${p.processId}` : ': free'}`}
+                  title={`Partition ${i} (${partSize} KB)${!isFree ? `\nProcess: ${p.processId} (${p.processSize} KB)\nInternal Frag: ${p.internalFrag} KB` : '\nFree'}`}
                   style={{ width: scale(partSize) }}
-                  className="relative flex border-r border-[var(--os-bg)] last:border-r-0"
+                  className={`relative flex border-r border-[var(--os-bg)] last:border-r-0 ${
+                    isFree ? 'bg-[repeating-linear-gradient(45deg,#1a2535,#1a2535_5px,#243044_5px,#243044_10px)]' : ''
+                  }`}
                 >
-                  <div className="h-full bg-[#d97706]" style={{ width: `${usedFrac * 100}%` }} />
-                  <div className="h-full flex-1 bg-[#1a2535]" />
+                  {!isFree && (
+                    <>
+                      <div className="h-full bg-[#d97706]" style={{ width: `${usedFrac * 100}%` }} />
+                      <div className="h-full flex-1 bg-[#1a2535]" />
+                    </>
+                  )}
                 </div>
               )
             })}
+            {(totalMem % partSize !== 0) && (
+              <div
+                title={`Unpartitioned Space (${totalMem % partSize} KB)`}
+                style={{ width: scale(totalMem % partSize) }}
+                className="relative flex bg-[repeating-linear-gradient(45deg,#1a2535,#1a2535_5px,#243044_5px,#243044_10px)] opacity-50"
+              />
+            )}
           </div>
         </div>
 
